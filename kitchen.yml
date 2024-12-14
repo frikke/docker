@@ -8,25 +8,25 @@ driver:
 provisioner:
   name: chef_infra
   product_name: <%= ENV['CHEF_PRODUCT_NAME'] || 'chef' %>
-  product_version: 17
+  product_version: <%= ENV['CHEF_VERSION'] || 'latest' %>
   enforce_idempotency: true
   multiple_converge: 2
   deprecations_as_errors: true
+  chef_license: accept-no-persist
 
 verifier:
   name: inspec
 
 platforms:
   - name: almalinux-8
-  - name: amazonlinux-2
-  - name: centos-7
-  - name: centos-stream-8
-  - name: debian-10
+  - name: almalinux-9
   - name: debian-11
-  - name: fedora-latest
+  - name: debian-12
   - name: rockylinux-8
-  - name: ubuntu-18.04
+  - name: rockylinux-9
   - name: ubuntu-20.04
+  - name: ubuntu-22.04
+  - name: ubuntu-24.04
 
 suites:
 
@@ -86,6 +86,8 @@ suites:
       - recipe[docker_test::container]
       - recipe[docker_test::exec]
       - recipe[docker_test::plugin]
+      - recipe[docker_test::image_prune]
+      - recipe[docker_test::volume_prune]
 
   - name: network
     provisioner:
@@ -108,6 +110,7 @@ suites:
     run_list:
       - recipe[docker_test::default]
       - recipe[docker_test::volume]
+      - recipe[docker_test::volume_prune]
 
   - name: registry
     provisioner:

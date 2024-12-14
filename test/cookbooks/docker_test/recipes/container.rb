@@ -290,6 +290,34 @@ docker_container 'binds_alias' do
   action :run_if_missing
 end
 
+#######
+# tmpfs
+#######
+
+# docker inspect -f "{{ .HostConfig.Tmpfs }}"
+docker_container 'tmpfs_mounter' do
+  repo 'busybox'
+  command 'df -h /tmpfs_dir'
+  tmpfs '/tmpfs_dir' => 'rw,size=10m'
+  action :run_if_missing
+end
+
+################
+# tmpfs test
+################
+
+docker_container 'tmpfs_test' do
+  repo 'alpine'
+  tag '3.1'
+  command 'df -h'
+  tmpfs({
+    '/tmpfs1' => '',
+    '/tmpfs2' => 'size=20M,uid=1000',
+    '/tmpfs3' => 'rw,noexec,nosuid,size=50M',
+  })
+  action :run_if_missing
+end
+
 ##############
 # volumes_from
 ##############
@@ -1141,6 +1169,18 @@ docker_container 'sysctls' do
   sysctls 'net.core.somaxconn' => '65535',
           'net.core.xfrm_acq_expires' => '42'
   timeout 40
+  action :run_if_missing
+end
+
+###################
+# GPU test container
+###################
+
+docker_container 'gpu_test' do
+  repo 'nvidia/cuda'
+  tag 'latest'
+  gpus 'all'
+  gpu_driver 'nvidia'
   action :run_if_missing
 end
 
