@@ -290,6 +290,34 @@ docker_container 'binds_alias' do
   action :run_if_missing
 end
 
+#######
+# tmpfs
+#######
+
+# docker inspect -f "{{ .HostConfig.Tmpfs }}"
+docker_container 'tmpfs_mounter' do
+  repo 'busybox'
+  command 'df -h /tmpfs_dir'
+  tmpfs '/tmpfs_dir' => 'rw,size=10m'
+  action :run_if_missing
+end
+
+################
+# tmpfs test
+################
+
+docker_container 'tmpfs_test' do
+  repo 'alpine'
+  tag '3.1'
+  command 'df -h'
+  tmpfs({
+    '/tmpfs1' => '',
+    '/tmpfs2' => 'size=20M,uid=1000',
+    '/tmpfs3' => 'rw,noexec,nosuid,size=50M',
+  })
+  action :run_if_missing
+end
+
 ##############
 # volumes_from
 ##############
@@ -1144,6 +1172,18 @@ docker_container 'sysctls' do
   action :run_if_missing
 end
 
+###################
+# GPU test container
+###################
+
+docker_container 'gpu_test' do
+  repo 'nvidia/cuda'
+  tag 'latest'
+  gpus 'all'
+  gpu_driver 'nvidia'
+  action :run_if_missing
+end
+
 ########################
 # Dockerfile CMD changes
 ########################
@@ -1250,5 +1290,12 @@ docker_container 'health_check' do
     'Retries' => 0,
     'StartPeriod' => 0
   )
+  action :run
+end
+
+# Test case for digest image format
+docker_container 'sha256-test' do
+  repo 'hello-world'
+  tag 'sha256:0add3ace90ecb4adbf7777e9aacf18357296e799f81cabc9fde470971e499788'
   action :run
 end

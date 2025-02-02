@@ -288,6 +288,16 @@ describe 'docker_test::container' do
     end
   end
 
+  context 'testing tmpfs_mounter' do
+    it 'run_if_missing_docker_container[tmpfs_mounter]' do
+      expect(chef_run).to run_if_missing_docker_container('tmpfs_mounter').with(
+        repo: 'busybox',
+        command: ['df', '-h', '/tmpfs_dir'],
+        tmpfs: { '/tmpfs_dir' => 'rw,size=10m' }
+      )
+    end
+  end
+
   context 'testing volumes_from' do
     it 'creates directory[/chefbuilder]' do
       expect(chef_run).to create_directory('/chefbuilder').with(
@@ -932,6 +942,19 @@ describe 'docker_test::container' do
           'Retries' => 0,
           'StartPeriod' => 0,
         }
+      )
+    end
+  end
+
+  context 'testing GPU support' do
+    let(:chef_run) { ChefSpec::SoloRunner.new(platform: 'ubuntu', version: '18.04').converge(described_recipe) }
+
+    it 'creates a container with GPU support' do
+      expect(chef_run).to run_if_missing_docker_container('gpu_test').with(
+        repo: 'nvidia/cuda',
+        tag: 'latest',
+        gpus: 'all',
+        gpu_driver: 'nvidia'
       )
     end
   end

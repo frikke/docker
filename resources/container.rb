@@ -2,6 +2,8 @@ unified_mode true
 use 'partial/_base'
 use 'partial/_logging'
 
+include DockerCookbook::DockerHelpers::Container
+
 property :container_name, String, name_property: true
 property :repo, String, default: lazy { container_name }
 property :tag, String, default: 'latest'
@@ -12,6 +14,7 @@ property :attach_stdout, [true, false], default: false, desired_state: false
 property :autoremove, [true, false], default: false, desired_state: false
 property :cap_add, [Array, nil], coerce: proc { |v| Array(v).empty? ? nil : Array(v) }
 property :cap_drop, [Array, nil], coerce: proc { |v| Array(v).empty? ? nil : Array(v) }
+property :cgroup_ns, String, default: lazy { cgroupv2? ? 'private' : 'host' }
 property :cgroup_parent, String, default: ''
 property :cpus, [Integer, Float], coerce: proc { |v| coerce_cpus(v) }, default: 0
 property :cpu_shares, Integer, default: 0
@@ -64,6 +67,8 @@ property :signal, String, default: 'SIGTERM'
 property :stdin_once, [true, false], default: false, desired_state: false
 property :sysctls, Hash, default: {}
 property :timeout, Integer, desired_state: false
+property :tmpfs, [Hash, Array], default: {}, coerce: proc { |v| coerce_tmpfs(v) },
+  description: 'A hash or array of tmpfs mounts to add to the container. Hash format: { "/path" => "size=100M,uid=1000" }. Array format: ["/path", "/path2"]. See https://docs.docker.com/storage/tmpfs/'
 property :tty, [true, false], default: false
 property :ulimits, [Array, nil], coerce: proc { |v| coerce_ulimits(v) }
 property :user, String
@@ -73,6 +78,8 @@ property :volumes, PartialHashType, default: {}, coerce: proc { |v| coerce_volum
 property :volumes_from, [String, Array], coerce: proc { |v| v.nil? ? nil : Array(v) }
 property :volume_driver, String
 property :working_dir, String
+property :gpus, [String, nil], description: 'GPU devices to add to the container (e.g., all or device=0)'
+property :gpu_driver, String, default: 'nvidia', description: 'GPU driver to use for container (e.g., nvidia)'
 
 # Used to store the bind property since binds is an alias to volumes
 property :volumes_binds, Array, coerce: proc { |v| v.sort }
@@ -206,6 +213,15 @@ def coerce_volumes(v)
   end
 end
 
+def coerce_tmpfs(v)
+  case v
+  when Hash, nil
+    v
+  when Array
+    v.each_with_object({}) { |path, h| h[path] = '' }
+  end
+end
+
 def state
   # Always return the latest state, see #510
   Docker::Container.get(container_name, {}, connection).info['State']
@@ -322,11 +338,11 @@ end
 #
 # If you say:    `image 'repo/blah'`
 # Repo will be:  `repo/blah`
-# Tag will be:   `latest`
+# Tag will be:   `latest'
 #
 # If you say:    `image 'repo/blah:3.1'`
 # Repo will be:  `repo/blah`
-# Tag will be:   `3.1`
+# Tag will be:   `3.1'
 #
 # If you say:    `image 'repo:1337/blah'`
 # Repo will be:  `repo:1337/blah`
@@ -334,7 +350,7 @@ end
 #
 # If you say:    `image 'repo:1337/blah:3.1'`
 # Repo will be:  `repo:1337/blah`
-# Tag will be:   `3.1`
+# Tag will be:   `3.1'
 #
 def image(image = nil)
   if image
@@ -397,6 +413,9 @@ load_current_value do |new_resource|
     when 'NanoCpus'
       property_name = 'cpus'
       value = (value / (10**9)).to_i
+    when 'NetworkMode'
+      property_name = 'network_mode'
+      value = normalize_container_network_mode(value)
     else
       property_name = to_snake_case(key)
     end
@@ -453,7 +472,7 @@ action :create do
     with_retries do
       config = {
         'name'            => new_resource.container_name,
-        'Image'           => "#{new_resource.repo}:#{new_resource.tag}",
+        'Image'           => new_resource.tag.to_s.start_with?('sha256:') ? "#{new_resource.repo}@#{new_resource.tag}" : "#{new_resource.repo}:#{new_resource.tag}",
         'Labels'          => new_resource.labels,
         'Cmd'             => to_shellwords(new_resource.command),
         'AttachStderr'    => new_resource.attach_stderr,
@@ -478,6 +497,7 @@ action :create do
           'CapAdd'          => new_resource.cap_add,
           'CapDrop'         => new_resource.cap_drop,
           'CgroupParent'    => new_resource.cgroup_parent,
+          'CgroupnsMode'    => new_resource.cgroup_ns,
           'CpuShares'       => new_resource.cpu_shares,
           'CpusetCpus'      => new_resource.cpuset_cpus,
           'Devices'         => new_resource.devices,
@@ -494,7 +514,7 @@ action :create do
           'MemorySwappiness' => new_resource.memory_swappiness,
           'MemoryReservation' => new_resource.memory_reservation,
           'NanoCpus'        => new_resource.cpus,
-          'NetworkMode'     => new_resource.network_mode,
+          'NetworkMode'     => normalize_container_network_mode(new_resource.network_mode),
           'OomKillDisable'  => new_resource.oom_kill_disable,
           'OomScoreAdj'     => new_resource.oom_score_adj,
           'Privileged'      => new_resource.privileged,
@@ -510,6 +530,7 @@ action :create do
           'SecurityOpt'     => new_resource.security_opt,
           'ShmSize'         => new_resource.shm_size,
           'Sysctls'         => new_resource.sysctls,
+          'Tmpfs'           => new_resource.tmpfs,
           'Ulimits'         => ulimits_to_hash,
           'UsernsMode'      => new_resource.userns_mode,
           'UTSMode'         => new_resource.uts_mode,
@@ -538,6 +559,12 @@ action :create do
 
       # Store the state of the options and create the container
       new_resource.create_options = config
+      config['HostConfig']['DeviceRequests'] = [{
+        'Driver' => new_resource.gpu_driver,
+        'Count' => -1, # -1 means no limit
+        'Capabilities' => [['gpu']],
+      }] if new_resource.gpus == 'all'
+
       Docker::Container.create(config, connection)
     end
   end
@@ -653,6 +680,8 @@ action :export do
 end
 
 action_class do
+  include DockerCookbook::DockerHelpers::Container
+
   def validate_container_create
     if new_resource.property_is_set?(:restart_policy) &&
        new_resource.restart_policy != 'no' &&
@@ -728,8 +757,21 @@ action_class do
     new_resource.env_file.map { |f| ::File.readlines(f).map(&:strip) }.flatten
   end
 
-  def cgroupv2?
-    return if node.dig('filesystem', 'by_device').nil?
-    node.dig('filesystem', 'by_device').key?('cgroup2')
+  def normalize_container_network_mode(value)
+    if value.is_a?(String) && value.start_with?('container:')
+      # Use the network helper method for container network mode
+      DockerCookbook::DockerHelpers::Network.normalize_container_network_mode(value)
+    else
+      case value
+      when 'host'
+        'host'
+      when 'none'
+        'none'
+      when 'default'
+        'bridge'
+      else
+        value
+      end
+    end
   end
 end

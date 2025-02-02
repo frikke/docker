@@ -117,7 +117,7 @@ describe docker_image('localhost:5043/someara/name-w-dashes:latest') do
   its('tag') { should eq 'latest' }
 end
 
-# docker_tag[private repo tag for name.w.dots:latest / v0.1.0 / / v0.1.1 /]
+# docker_image[private repo tag for name.w.dots:latest / v0.1.0 / / v0.1.1 /]
 
 describe docker_image('localhost:5043/someara/name.w.dots:latest') do
   it { should exist }
@@ -313,6 +313,13 @@ describe command('docker inspect -f "{{ .Config.Volumes }}" binds_alias') do
   its(:exit_status) { should eq 0 }
   its(:stdout) { should match(%r{\/snow\:\{\}}) }
   its(:stdout) { should match(%r{\/summer\:\{\}}) }
+end
+
+# docker_container[tmpfs_mounter]
+
+describe command('docker inspect -f "{{ .HostConfig.Tmpfs }}" tmpfs_mounter') do
+  its(:exit_status) { should eq 0 }
+  its(:stdout) { should match('/tmpfs.*10.0m.*tmpfs_dir/') }
 end
 
 # docker_container[chef_container]
