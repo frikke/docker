@@ -1,5 +1,10 @@
+# frozen_string_literal: true
+
 unified_mode true
-use 'partial/_base'
+use '_partial/_base'
+
+resource_name :docker_registry
+provides :docker_registry
 
 property :email, String
 
@@ -29,7 +34,7 @@ action :login do
   }
 
   begin
-    Docker.connection.post(
+    connection.post(
       '/auth', {},
       body: node.run_state['docker_auth'][registry_host].to_json
     )

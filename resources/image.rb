@@ -1,5 +1,10 @@
+# frozen_string_literal: true
+
 unified_mode true
-use 'partial/_base'
+use '_partial/_base'
+
+resource_name :docker_image
+provides :docker_image
 
 property :read_timeout, Integer, default: 120, desired_state: false
 property :host, [String, nil], default: lazy { ENV['DOCKER_HOST'] }, desired_state: false
@@ -176,7 +181,14 @@ action_class do
 
   def load_image
     with_retries do
-      Docker::Image.load(new_resource.source, {}, connection)
+      ::File.open(new_resource.source, 'rb') do |file|
+        connection.post(
+          '/images/load',
+          {},
+          headers: { 'Content-Type' => 'application/x-tar' },
+          body: file
+        )
+      end
     end
   end
 
